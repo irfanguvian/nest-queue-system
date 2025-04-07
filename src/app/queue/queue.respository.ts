@@ -1,40 +1,62 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "@src/database/services/prisma.service";
-import * as moment from 'moment';
+import * as moment from "moment";
 
 @Injectable()
 export class QueueRepository {
     constructor(private readonly prismaservice: PrismaService) { }
     // private readonly logger = new Logger(QueueRepository.name)
-    private readonly maxEnterRoom = 100
+    private readonly maxEnterRoom = 5;
+
     async create(data: { queue_id: string; product_code: string }) {
         await this.prismaservice.queueProductSystem.create({ data });
     }
 
     async findByQueueId(queue_id: string) {
-        return this.prismaservice.queueProductSystem.findUnique({ where: { queue_id } });
+        return this.prismaservice.queueProductSystem.findUnique({
+            where: { queue_id },
+        });
     }
 
     async isAvailable(queue_id: string): Promise<boolean> {
-        const result = await this.prismaservice.$queryRawUnsafe<
-            Array<{ position: number; total_entered: number }>
-        >(`
-        SELECT
-            (SELECT COUNT(*) FROM "QueueProductSystem" AS q1
-             WHERE q1."product_code" = q2."product_code"
-               AND q1."created_at" <= q2."created_at") + 1 AS position,
-            (SELECT COUNT(*) FROM "QueueProductSystem"
-             WHERE "product_code" = q2."product_code"
-               AND "entered_at" IS NOT NULL) AS total_entered
-        FROM "QueueProductSystem" q2
-        WHERE q2."queue_id" = $1
-        LIMIT 1
-        `, queue_id);
+        const queueEntry = await this.findByQueueId(queue_id);
+        if (!queueEntry) return false;
 
-        if (!result || result.length === 0) return false;
+        // Count number of people currently in the room for this product
+        const inRoomCount = await this.prismaservice.queueProductSystem.count({
+            where: {
+                product_code: queueEntry.product_code,
+                entered_at: { not: null },
+                expired_at: { gt: new Date() },
+            },
+        });
 
-        const { position, total_entered } = result[0];
-        return total_entered < this.maxEnterRoom && total_entered + 1 >= position;
+        // If room is not full, check if this user is among the next eligible people
+        if (inRoomCount < this.maxEnterRoom) {
+            // Get position of this user in waiting queue
+            const waitingQueue = await this.prismaservice.queueProductSystem.findMany(
+                {
+                    where: {
+                        product_code: queueEntry.product_code,
+                        entered_at: null, // Not yet entered
+                    },
+                    orderBy: { created_at: "asc" }, // Order by creation time
+                },
+            );
+
+            // Find position of current queue_id in waiting list (0-based index)
+            const waitingPosition = waitingQueue.findIndex(
+                (entry) => entry.queue_id === queue_id,
+            );
+
+            // Eligible if one of the first (maxEnterRoom - inRoomCount) people in waiting queue
+            return (
+                waitingPosition >= 0 &&
+                waitingPosition < this.maxEnterRoom - inRoomCount
+            );
+        }
+
+        return false;
     }
 
     async enterRoom(queue_id: string): Promise<boolean> {
@@ -42,7 +64,10 @@ export class QueueRepository {
         if (!isAvailable) return false;
         await this.prismaservice.queueProductSystem.update({
             where: { queue_id },
-            data: { entered_at: new Date(), expired_at: moment().add(15, 'minutes').toDate() },
+            data: {
+                entered_at: new Date(),
+                expired_at: moment().add(15, "minutes").toDate(),
+            },
         });
         return true;
     }
@@ -50,7 +75,7 @@ export class QueueRepository {
     async getPositionInQueue(product_code: string): Promise<number> {
         const entries = await this.prismaservice.queueProductSystem.findMany({
             where: { product_code },
-            orderBy: { created_at: 'asc' },
+            orderBy: { created_at: "asc" },
         });
         return entries.length;
     }
@@ -59,16 +84,22 @@ export class QueueRepository {
         const current = await this.findByQueueId(queue_id);
         if (!current) return 0;
 
-        const count = await this.prismaservice.queueProductSystem.count({
+        // If already in room, position is 0
+        if (current.entered_at) return 0;
+
+        // Count only people who are waiting (not entered yet)
+        const waitingQueue = await this.prismaservice.queueProductSystem.findMany({
             where: {
                 product_code: current.product_code,
-                created_at: {
-                    lte: current.created_at,
-                },
+                entered_at: null,
             },
+            orderBy: { created_at: "asc" },
         });
 
-        return count + 1; // Position is 1-based
+        // Find position in waiting list (1-based)
+        const position =
+            waitingQueue.findIndex((entry) => entry.queue_id === queue_id) + 1;
+        return position > 0 ? position : 0;
     }
 
     async clearExpiredEntries() {
@@ -90,35 +121,160 @@ export class QueueRepository {
         const current = await this.findByQueueId(queue_id);
         if (!current) return { minutes: -1 };
 
-        const userPosition = await this.getPositionInQueueByQueueId(queue_id);
+        // If already in the room
+        if (current.entered_at) return { minutes: 0 };
 
-        if (userPosition <= this.maxEnterRoom) {
-            // Already eligible
+        const now = new Date();
+        // Get information about current user's position and room availability in a single query
+        const result = await this.prismaservice.$queryRaw<
+            Array<{
+                active_users_count: number;
+                waiting_ahead: number;
+            }>
+        >`
+            WITH RoomUsers AS (
+                SELECT expired_at
+                FROM "QueueProductSystem"
+                WHERE product_code = ${current.product_code}
+                  AND entered_at IS NOT NULL
+                  AND expired_at >= ${now}
+                ORDER BY expired_at ASC
+            ),
+            WaitingQueue AS (
+                SELECT 
+                    queue_id,
+                    ROW_NUMBER() OVER (ORDER BY created_at ASC) as position
+                FROM "QueueProductSystem"
+                WHERE product_code = ${current.product_code}
+                  AND entered_at IS NULL
+                ORDER BY created_at ASC
+            )
+            SELECT
+                (SELECT COUNT(*) FROM RoomUsers) as active_users_count,
+                (SELECT COUNT(*) FROM WaitingQueue WHERE position < 
+                    (SELECT position FROM WaitingQueue WHERE queue_id = ${queue_id})
+                ) as waiting_ahead
+        `;
+
+        // If query returned no results
+        if (!result || result.length === 0) {
+            return { minutes: -1 };
+        }
+        
+        const active_users_count = Number.parseInt(String(result[0].active_users_count));
+        const waiting_ahead = Number.parseInt(String(result[0].waiting_ahead));
+        // If no waiting users ahead and room has space, can enter immediately
+        if (waiting_ahead === 0 && active_users_count < this.maxEnterRoom) {
             return { minutes: 0 };
         }
 
-        // Get the earliest active user inside the room (not expired)
-        const firstActive = await this.prismaservice.queueProductSystem.findFirst({
-            where: {
-                product_code: current.product_code,
-                expired_at: {
-                    gt: new Date(), // still inside room
-                },
-            },
-            orderBy: { expired_at: 'asc' },
-        });
+        // Get earliest exit times from room, sorted
+        const exitTimesResult = await this.prismaservice.$queryRaw<
+            Array<{ exit_time: Date }>
+        >`
+            SELECT expired_at as exit_time
+            FROM "QueueProductSystem" 
+            WHERE product_code = ${current.product_code}
+              AND entered_at IS NOT NULL
+              AND expired_at > ${now}
+            ORDER BY expired_at ASC
+            LIMIT 10
+        `;
 
-        if (!firstActive) {
-            // No one is inside room now
-            return { minutes: (userPosition - this.maxEnterRoom) * 15 };
+        // Calculate when this user can enter
+        const exitTimes = exitTimesResult.map((r) => moment(r.exit_time));
+
+        // Calculate estimated wait time
+        const estimatedMinutes = this.calculateEstimatedWaitTime(
+            exitTimes,
+            waiting_ahead,
+            active_users_count,
+        );
+
+        return { minutes: Math.max(0, estimatedMinutes) };
+    }
+
+    /**
+     * Calculate estimated wait time based on current room status and position in queue
+     * @param exitTimes Array of moment objects representing when current users exit
+     * @param waitingAhead Number of users ahead in waiting queue
+     * @param activeUsersCount Current number of users in room
+     * @returns Estimated wait time in minutes
+     */
+    private calculateEstimatedWaitTime(
+        exitTimes: moment.Moment[],
+        waitingAhead: number,
+        activeUsersCount: number,
+    ): number {
+        const now = moment()
+        console.log("Current time:", now.format("YYYY-MM-DD HH:mm:ss"));
+        let waitingAheadTemp = waitingAhead;
+        const roomCapacity = this.maxEnterRoom;
+
+        // Case 1: Room is not full and no one ahead - can enter immediately
+        if (activeUsersCount < roomCapacity && waitingAhead === 0) {
+            return 0;
         }
 
-        // Time remaining for first user
-        const now = moment();
-        const expire = moment(firstActive.expired_at);
-        const timeLeft = expire.diff(now, 'minutes');
+        // Case 2: Room is full or there are people ahead
+        // Calculate available spots when people start leaving
+        const availableSpots = roomCapacity - activeUsersCount;
 
-        const estimatedMinutes = timeLeft + ((userPosition - this.maxEnterRoom - 1) * 15);
-        return { minutes: Math.max(estimatedMinutes, 0) };
+        // If there are spots available, some people can enter immediately
+        if (availableSpots > 0) {
+            // If our position is within available spots, can enter immediately
+            if (waitingAhead < availableSpots) {
+                return 0;
+            }
+
+            // Otherwise, calculate how many people need to leave before we can enter
+            waitingAheadTemp -= availableSpots;
+        }
+
+        // Sort exit times (should be sorted already, but making sure)
+        exitTimes.sort((a, b) => a.valueOf() - b.valueOf());
+
+        // If no one is in room or exit times are empty (shouldn't happen, but being safe)
+        if (exitTimes.length === 0) {
+            // Calculate based only on waiting queue position and room capacity
+            const cycleTimeMinutes = 15; // each room cycle takes 15 minutes
+            const fullCycles = Math.floor(waitingAheadTemp / roomCapacity);
+            const partialCycle = waitingAheadTemp % roomCapacity > 0 ? 1 : 0;
+
+            return (fullCycles + partialCycle) * cycleTimeMinutes;
+        }
+
+        // Get time until first exit
+        const timeToFirstExit = Math.max(0, exitTimes[0].diff(now, "minutes"));
+
+        // If no one is ahead, we can enter when the first person exits
+        if (waitingAheadTemp === 0) {
+            return timeToFirstExit;
+        }
+
+        // For users ahead of us, calculate how many full room cycles needed
+        const usersPerFullCycle = roomCapacity;
+        const fullCycles = Math.floor(waitingAheadTemp / usersPerFullCycle);
+
+        // Calculate position within the cycle (0-based)
+        const positionInCycle = waitingAheadTemp % usersPerFullCycle;
+
+        // Base wait time: time until first exit + full cycles time
+        let waitTime = timeToFirstExit + fullCycles * 15;
+
+        // If not at the start of a cycle, add time proportional to position
+        if (positionInCycle > 0) {
+            // If we have enough exit times, use the actual time for that position
+            if (positionInCycle < exitTimes.length) {
+                // Get the exact time when the user at this position will exit
+                waitTime =
+                    exitTimes[positionInCycle].diff(now, "minutes") + fullCycles * 15;
+            } else {
+                // Add proportional time for position in cycle
+                waitTime += 15 * (positionInCycle / usersPerFullCycle);
+            }
+        }
+
+        return Math.max(0, waitTime);
     }
 }

@@ -15,31 +15,38 @@ export class QueueService {
         const result = new ResponseEntity({
             message: 'Queue started failed',
             success: false,
-            data: {queue_id: ''},
+            data: { queue_id: '' },
             errors: [],
         })
         try {
             const queue_id = uuidv4();
+            console.log(moment().format('YYYY-MM-DD HH:mm:ss'), "soki")
             await this.queueRepository.create({ queue_id, product_code });
             result.success = true;
             result.message = 'Queue started successfully';
             result.data = {
                 queue_id,
             }
+            return result;
         } catch (error) {
             result.message = 'Failed to start queue';
             result.success = false;
             result.errors = [{ field: 'queue', message: ['Failed to start queue'] }];
             this.logger.error('Failed to start queue', error);
+            return result;
         }
-        return result;
     }
 
     async checkStatus(queue_id: string) {
         const result = new ResponseEntity({
             message: 'Queue status checked failed',
             success: false,
-            data: { queue_id: '', is_available: false, estimated_time: '' },
+            data: {
+                queue_id: '',
+                is_available: false,
+                estimated_time: 0,
+                position: 0
+            },
             errors: [],
         })
         try {
@@ -50,32 +57,29 @@ export class QueueService {
                 result.errors = [{ field: 'queue', message: ['Queue ID not found'] }];
                 return result;
             }
+
             const is_available = await this.queueRepository.isAvailable(queue_id);
+            const position = await this.queueRepository.getPositionInQueueByQueueId(queue_id);
+            const estimated_minutes = await this.queueRepository.getEstimatedWaitTime(queue_id);
+
             result.success = true;
             result.message = 'Queue status checked successfully';
-
-            if(is_available == false) {
-                const estimated_minutes = await this.queueRepository.getPositionInQueue(queue_id);
-                const estimated_time = moment().add(estimated_minutes, 'minutes').format("YYYY-MM-DD HH:mm:ss");
-                result.data = {
-                    queue_id,
-                    is_available: false,
-                    estimated_time,
-                }
-            }
             result.data = {
                 queue_id,
-                is_available : true,
-                estimated_time: '',
+                is_available,
+                estimated_time: estimated_minutes.minutes,
+                position: position
             }
+
+            return result;
         } catch (error) {
+            console.error('Check queue status', error);
             result.message = 'Failed to check queue status';
             result.success = false;
             result.errors = [{ field: 'queue', message: ['Check queue status'] }];
             this.logger.error('Check queue status', error);
+            return result;
         }
-        return result;
-
     }
 
     async enterRoom(queue_id: string) {
@@ -91,13 +95,13 @@ export class QueueService {
             }
             result.success = true;
             result.message = 'Queue enter room successfully';
-            
+            return result;
         } catch (error) {
             result.message = 'Failed to enter room';
             result.success = false;
             result.errors = [{ field: 'queue', message: ['Failed to enter room'] }];
             this.logger.error('Failed to enter room', error);
+            return result;
         }
-        return result;
     }
 }
