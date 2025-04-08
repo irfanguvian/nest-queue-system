@@ -1,7 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common"
 import { QueueRepository } from "./queue.respository"
 import { v4 as uuidv4 } from 'uuid';
-import * as moment from 'moment';
 import { ResponseEntity } from "@src/common/entities/response.entity";
 
 @Injectable()
@@ -20,7 +19,6 @@ export class QueueService {
         })
         try {
             const queue_id = uuidv4();
-            console.log(moment().format('YYYY-MM-DD HH:mm:ss'), "soki")
             await this.queueRepository.create({ queue_id, product_code });
             result.success = true;
             result.message = 'Queue started successfully';
@@ -45,7 +43,6 @@ export class QueueService {
                 queue_id: '',
                 is_available: false,
                 estimated_time: 0,
-                position: 0
             },
             errors: [],
         })
@@ -59,7 +56,6 @@ export class QueueService {
             }
 
             const is_available = await this.queueRepository.isAvailable(queue_id);
-            const position = await this.queueRepository.getPositionInQueueByQueueId(queue_id);
             const estimated_minutes = await this.queueRepository.getEstimatedWaitTime(queue_id);
 
             result.success = true;
@@ -68,7 +64,6 @@ export class QueueService {
                 queue_id,
                 is_available,
                 estimated_time: estimated_minutes.minutes,
-                position: position
             }
 
             return result;

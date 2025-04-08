@@ -7,7 +7,7 @@ export class QueueRepository {
     constructor(private readonly prismaservice: PrismaService) { }
     // private readonly logger = new Logger(QueueRepository.name)
     private readonly maxEnterRoom = 5;
-
+    private readonly minutesProcessTime = 5;
     async create(data: { queue_id: string; product_code: string }) {
         await this.prismaservice.queueProductSystem.create({ data });
     }
@@ -27,7 +27,7 @@ export class QueueRepository {
             where: {
                 product_code: queueEntry.product_code,
                 entered_at: { not: null },
-                expired_at: { gt: new Date() },
+                expired_at: { gt: moment().format("YYYY-MM-DD HH:mm:ss") },
             },
         });
 
@@ -41,6 +41,7 @@ export class QueueRepository {
                         entered_at: null, // Not yet entered
                     },
                     orderBy: { created_at: "asc" }, // Order by creation time
+                    take: this.maxEnterRoom - inRoomCount,
                 },
             );
 
@@ -62,44 +63,22 @@ export class QueueRepository {
     async enterRoom(queue_id: string): Promise<boolean> {
         const isAvailable = await this.isAvailable(queue_id);
         if (!isAvailable) return false;
+        const now = moment()
         await this.prismaservice.queueProductSystem.update({
             where: { queue_id },
             data: {
-                entered_at: new Date(),
-                expired_at: moment().add(15, "minutes").toDate(),
+                entered_at: now.format("YYYY-MM-DD HH:mm:ss"),
+                expired_at: moment().add(this.minutesProcessTime, "minutes").format("YYYY-MM-DD HH:mm:ss"),
             },
         });
         return true;
     }
 
     async getPositionInQueue(product_code: string): Promise<number> {
-        const entries = await this.prismaservice.queueProductSystem.findMany({
+        const entries = await this.prismaservice.queueProductSystem.count({
             where: { product_code },
-            orderBy: { created_at: "asc" },
         });
-        return entries.length;
-    }
-
-    async getPositionInQueueByQueueId(queue_id: string): Promise<number> {
-        const current = await this.findByQueueId(queue_id);
-        if (!current) return 0;
-
-        // If already in room, position is 0
-        if (current.entered_at) return 0;
-
-        // Count only people who are waiting (not entered yet)
-        const waitingQueue = await this.prismaservice.queueProductSystem.findMany({
-            where: {
-                product_code: current.product_code,
-                entered_at: null,
-            },
-            orderBy: { created_at: "asc" },
-        });
-
-        // Find position in waiting list (1-based)
-        const position =
-            waitingQueue.findIndex((entry) => entry.queue_id === queue_id) + 1;
-        return position > 0 ? position : 0;
+        return entries;
     }
 
     async clearExpiredEntries() {
@@ -135,9 +114,9 @@ export class QueueRepository {
             WITH RoomUsers AS (
                 SELECT expired_at
                 FROM "QueueProductSystem"
-                WHERE product_code = ${current.product_code}
+                WHERE product_code = '${current.product_code}'
                   AND entered_at IS NOT NULL
-                  AND expired_at >= ${now}
+                  AND expired_at >= '${now}'
                 ORDER BY expired_at ASC
             ),
             WaitingQueue AS (
@@ -145,14 +124,14 @@ export class QueueRepository {
                     queue_id,
                     ROW_NUMBER() OVER (ORDER BY created_at ASC) as position
                 FROM "QueueProductSystem"
-                WHERE product_code = ${current.product_code}
+                WHERE product_code = '${current.product_code}'
                   AND entered_at IS NULL
                 ORDER BY created_at ASC
             )
             SELECT
                 (SELECT COUNT(*) FROM RoomUsers) as active_users_count,
                 (SELECT COUNT(*) FROM WaitingQueue WHERE position < 
-                    (SELECT position FROM WaitingQueue WHERE queue_id = ${queue_id})
+                    (SELECT position FROM WaitingQueue WHERE queue_id = '${queue_id}')
                 ) as waiting_ahead
         `;
 
@@ -174,9 +153,9 @@ export class QueueRepository {
         >`
             SELECT expired_at as exit_time
             FROM "QueueProductSystem" 
-            WHERE product_code = ${current.product_code}
+            WHERE product_code = '${current.product_code}'
               AND entered_at IS NOT NULL
-              AND expired_at > ${now}
+              AND expired_at > '${now}'
             ORDER BY expired_at ASC
             LIMIT 10
         `;
@@ -191,7 +170,7 @@ export class QueueRepository {
             active_users_count,
         );
 
-        return { minutes: Math.max(0, estimatedMinutes) };
+        return { minutes: Math.max(0, estimatedMinutes + 1) };
     }
 
     /**
@@ -207,7 +186,6 @@ export class QueueRepository {
         activeUsersCount: number,
     ): number {
         const now = moment()
-        console.log("Current time:", now.format("YYYY-MM-DD HH:mm:ss"));
         let waitingAheadTemp = waitingAhead;
         const roomCapacity = this.maxEnterRoom;
 
@@ -237,7 +215,7 @@ export class QueueRepository {
         // If no one is in room or exit times are empty (shouldn't happen, but being safe)
         if (exitTimes.length === 0) {
             // Calculate based only on waiting queue position and room capacity
-            const cycleTimeMinutes = 15; // each room cycle takes 15 minutes
+            const cycleTimeMinutes = this.minutesProcessTime; // each room cycle takes this.minutesProcessTime minutes
             const fullCycles = Math.floor(waitingAheadTemp / roomCapacity);
             const partialCycle = waitingAheadTemp % roomCapacity > 0 ? 1 : 0;
 
@@ -260,7 +238,7 @@ export class QueueRepository {
         const positionInCycle = waitingAheadTemp % usersPerFullCycle;
 
         // Base wait time: time until first exit + full cycles time
-        let waitTime = timeToFirstExit + fullCycles * 15;
+        let waitTime = timeToFirstExit + fullCycles * this.minutesProcessTime;
 
         // If not at the start of a cycle, add time proportional to position
         if (positionInCycle > 0) {
@@ -268,10 +246,10 @@ export class QueueRepository {
             if (positionInCycle < exitTimes.length) {
                 // Get the exact time when the user at this position will exit
                 waitTime =
-                    exitTimes[positionInCycle].diff(now, "minutes") + fullCycles * 15;
+                    exitTimes[positionInCycle].diff(now, "minutes") + fullCycles * this.minutesProcessTime;
             } else {
                 // Add proportional time for position in cycle
-                waitTime += 15 * (positionInCycle / usersPerFullCycle);
+                waitTime += this.minutesProcessTime * (positionInCycle / usersPerFullCycle);
             }
         }
 
