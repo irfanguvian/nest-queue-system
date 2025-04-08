@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../database/services/prisma.service";
-import * as moment from "moment";
+import moment from "moment";
 
 @Injectable()
 export class QueueRepository {
