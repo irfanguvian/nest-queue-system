@@ -38,28 +38,29 @@ export class QueueRepository {
 
         // If room is not full, check if this user is among the next eligible people
         if (inRoomCount < this.maxEnterRoom) {
-            // Get position of this user in waiting queue
-            const waitingQueue = await this.prismaservice.queueProductSystem.findMany(
-                {
-                    where: {
-                        product_code: queueEntry.product_code,
-                        entered_at: null, // Not yet entered
-                    },
-                    orderBy: { created_at: "asc" }, // Order by creation time
-                    take: this.maxEnterRoom - inRoomCount,
-                },
-            );
+            // // Get position of this user in waiting queue
+            // const waitingQueue = await this.prismaservice.queueProductSystem.findMany(
+            //     {
+            //         where: {
+            //             product_code: queueEntry.product_code,
+            //             entered_at: null, // Not yet entered
+            //         },
+            //         orderBy: { created_at: "asc" }, // Order by creation time
+            //         take: this.maxEnterRoom - inRoomCount,
+            //     },
+            // );
 
-            // Find position of current queue_id in waiting list (0-based index)
-            const waitingPosition = waitingQueue.findIndex(
-                (entry) => entry.queue_id === queue_id,
-            );
+            // // Find position of current queue_id in waiting list (0-based index)
+            // const waitingPosition = waitingQueue.findIndex(
+            //     (entry) => entry.queue_id === queue_id,
+            // );
 
-            // Eligible if one of the first (maxEnterRoom - inRoomCount) people in waiting queue
-            return (
-                waitingPosition >= 0 &&
-                waitingPosition < this.maxEnterRoom - inRoomCount
-            );
+            // // Eligible if one of the first (maxEnterRoom - inRoomCount) people in waiting queue
+            // return (
+            //     waitingPosition >= 0 &&
+            //     waitingPosition < this.maxEnterRoom - inRoomCount
+            // );
+            return true
         }
 
         return false;
