@@ -8,7 +8,7 @@ export class QueueTasksService {
 
     constructor(private readonly queueRepository: QueueRepository) { }
 
-    @Cron(CronExpression.EVERY_MINUTE)
+    @Cron(CronExpression.EVERY_5_MINUTES)
     async clearExpiredEntriesTask() {
         this.logger.log('Running scheduled task: clearing expired queue entries');
         try {
