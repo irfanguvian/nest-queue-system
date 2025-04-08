@@ -20,5 +20,11 @@
                 "OPTIONS"
             ]
         }
+    ],
+    "crons": [
+        {
+            "path": "/api/queue/cron",
+            "schedule": "* * * * *"
+        }
     ]
 }

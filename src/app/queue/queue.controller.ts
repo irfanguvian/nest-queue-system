@@ -2,13 +2,15 @@ import { Body, Controller, Get, Param, Post } from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { QueueService } from "./queue.service";
 import { CheckQueueStatusDto, EnterRoomDto, StartQueueDto } from "./queue.dto";
+import { QueueTasksService } from "./queue.tasks";
 
 
 @ApiTags('Queue')
 @Controller('')
 export class QueueController {
     constructor(
-        private readonly queueService: QueueService
+        private readonly queueService: QueueService,
+        private readonly queueTasksService: QueueTasksService
     ) { }
 
     @ApiOperation({ summary: 'Start a new queue' })
@@ -34,5 +36,13 @@ export class QueueController {
     @Post('enter')
     async enterRoom(@Body() body: EnterRoomDto) {
         return this.queueService.enterRoom(body.queue_id);
+    }
+
+    @ApiOperation({ summary: 'Cron job endpoint for clearing expired queue entries' })
+    @ApiResponse({ status: 200, description: 'Successfully cleared expired entries.' })
+    @Get('cron')
+    async runCronJob() {
+        await this.queueTasksService.clearExpiredEntriesTask();
+        return { success: true, message: 'Expired entries cleared successfully' };
     }
 }
