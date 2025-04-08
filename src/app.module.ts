@@ -12,7 +12,7 @@ import { QueueModule } from './app/queue/queue.module';
     ConfigModule.forRoot({
       isGlobal: true
     }),
-    // ScheduleModule.forRoot(),
+    ScheduleModule.forRoot(),
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL || "info",
