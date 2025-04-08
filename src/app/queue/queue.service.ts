@@ -57,7 +57,6 @@ export class QueueService {
 
             const is_available = await this.queueRepository.isAvailable(queue_id);
             const estimated_minutes = await this.queueRepository.getEstimatedWaitTime(queue_id);
-
             result.success = true;
             result.message = 'Queue status checked successfully';
             result.data = {

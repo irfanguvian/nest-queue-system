@@ -5,9 +5,14 @@ import * as moment from "moment";
 @Injectable()
 export class QueueRepository {
     constructor(private readonly prismaservice: PrismaService) { }
-    // private readonly logger = new Logger(QueueRepository.name)
     private readonly maxEnterRoom = 5;
     private readonly minutesProcessTime = 5;
+
+    // Helper method for consistent UTC handling
+    private getUTCTime() {
+        return moment().utc();
+    }
+
     async create(data: { queue_id: string; product_code: string }) {
         await this.prismaservice.queueProductSystem.create({ data });
     }
@@ -27,7 +32,7 @@ export class QueueRepository {
             where: {
                 product_code: queueEntry.product_code,
                 entered_at: { not: null },
-                expired_at: { gt: moment().format("YYYY-MM-DD HH:mm:ss") },
+                expired_at: { gt: this.getUTCTime().toDate() }, // Only count those who are still in the room
             },
         });
 
@@ -63,12 +68,13 @@ export class QueueRepository {
     async enterRoom(queue_id: string): Promise<boolean> {
         const isAvailable = await this.isAvailable(queue_id);
         if (!isAvailable) return false;
-        const now = moment()
+
+        const now = this.getUTCTime();
         await this.prismaservice.queueProductSystem.update({
             where: { queue_id },
             data: {
-                entered_at: now.format("YYYY-MM-DD HH:mm:ss"),
-                expired_at: moment().add(this.minutesProcessTime, "minutes").format("YYYY-MM-DD HH:mm:ss"),
+                entered_at: now.toDate(),
+                expired_at: now.clone().add(this.minutesProcessTime, "minutes").toDate(),
             },
         });
         return true;
@@ -84,7 +90,7 @@ export class QueueRepository {
     async clearExpiredEntries() {
         await this.prismaservice.queueProductSystem.deleteMany({
             where: {
-                expired_at: { lt: new Date() },
+                expired_at: { lt: this.getUTCTime().toDate() },
             },
         });
     }
@@ -103,7 +109,8 @@ export class QueueRepository {
         // If already in the room
         if (current.entered_at) return { minutes: 0 };
 
-        const now = new Date();
+        const now = this.getUTCTime().toDate();
+
         // Get information about current user's position and room availability in a single query
         const result = await this.prismaservice.$queryRaw<
             Array<{
@@ -114,9 +121,9 @@ export class QueueRepository {
             WITH RoomUsers AS (
                 SELECT expired_at
                 FROM "QueueProductSystem"
-                WHERE product_code = '${current.product_code}'
+                WHERE product_code = ${current.product_code}
                   AND entered_at IS NOT NULL
-                  AND expired_at >= '${now}'
+                  AND expired_at > ${now}
                 ORDER BY expired_at ASC
             ),
             WaitingQueue AS (
@@ -124,14 +131,14 @@ export class QueueRepository {
                     queue_id,
                     ROW_NUMBER() OVER (ORDER BY created_at ASC) as position
                 FROM "QueueProductSystem"
-                WHERE product_code = '${current.product_code}'
+                WHERE product_code = ${current.product_code}
                   AND entered_at IS NULL
                 ORDER BY created_at ASC
             )
             SELECT
                 (SELECT COUNT(*) FROM RoomUsers) as active_users_count,
                 (SELECT COUNT(*) FROM WaitingQueue WHERE position < 
-                    (SELECT position FROM WaitingQueue WHERE queue_id = '${queue_id}')
+                    (SELECT position FROM WaitingQueue WHERE queue_id = ${queue_id})
                 ) as waiting_ahead
         `;
 
@@ -139,9 +146,10 @@ export class QueueRepository {
         if (!result || result.length === 0) {
             return { minutes: -1 };
         }
-        
+
         const active_users_count = Number.parseInt(String(result[0].active_users_count));
         const waiting_ahead = Number.parseInt(String(result[0].waiting_ahead));
+
         // If no waiting users ahead and room has space, can enter immediately
         if (waiting_ahead === 0 && active_users_count < this.maxEnterRoom) {
             return { minutes: 0 };
@@ -153,15 +161,15 @@ export class QueueRepository {
         >`
             SELECT expired_at as exit_time
             FROM "QueueProductSystem" 
-            WHERE product_code = '${current.product_code}'
+            WHERE product_code = ${current.product_code}
               AND entered_at IS NOT NULL
-              AND expired_at > '${now}'
+              AND expired_at > ${now}
             ORDER BY expired_at ASC
             LIMIT 10
         `;
 
         // Calculate when this user can enter
-        const exitTimes = exitTimesResult.map((r) => moment(r.exit_time));
+        const exitTimes = exitTimesResult.map((r) => moment.utc(r.exit_time));
 
         // Calculate estimated wait time
         const estimatedMinutes = this.calculateEstimatedWaitTime(
@@ -185,7 +193,7 @@ export class QueueRepository {
         waitingAhead: number,
         activeUsersCount: number,
     ): number {
-        const now = moment()
+        const now = this.getUTCTime();
         let waitingAheadTemp = waitingAhead;
         const roomCapacity = this.maxEnterRoom;
 

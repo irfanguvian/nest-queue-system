@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
+import { ScheduleModule } from '@nestjs/schedule';
 import pino from 'pino';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseModule } from './database/database.module';
@@ -11,6 +12,7 @@ import { QueueModule } from './app/queue/queue.module';
     ConfigModule.forRoot({
       isGlobal: true
     }),
+    // ScheduleModule.forRoot(),
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL || "info",
