@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common"
 import { QueueRepository } from "./queue.respository"
 import { v4 as uuidv4 } from 'uuid';
-import { ResponseEntity } from "src/common/entities/response.entity";
+import { ResponseEntity } from "../../common/entities/response.entity";
 
 @Injectable()
 export class QueueService {
