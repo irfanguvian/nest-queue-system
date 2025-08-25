@@ -18,7 +18,7 @@ WORKDIR /app
 COPY . .
 COPY --from=dependencies /app/node_modules ./node_modules
 RUN pnpm build
-RUN pnpm run db:generate
+# RUN pnpm run db:generate
 RUN pnpm prune --prod --config.ignore-scripts=true
 
 FROM base AS deploy
