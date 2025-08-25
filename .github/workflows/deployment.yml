@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: ${{ vars.CR }}:${{ github.head_ref || github.ref_name }}-${{ github.sha }}
+  IMAGE_NAME: ${{ vars.CR }}/${{ github.repository }}:${{ github.head_ref || github.ref_name }}-${{ github.sha }}
 
 jobs:
   build_dev:
