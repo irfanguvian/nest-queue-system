@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ APP_NAME }}
+  namespace: {{ NAMESPACE }}
+  labels:
+    name: {{ APP_NAME }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: {{ APP_NAME }}
+  template:
+    metadata:
+      labels:
+        name: {{ APP_NAME }}
+    spec:
+      imagePullSecrets:
+      - name: ghcr
+      containers:
+        - name: {{ APP_NAME }}
+          image: {{ IMAGE_NAME }}
+          ports:
+            - containerPort: {{ PORT }}
+              protocol: {{ PROTOCOL }}
+          resources:
+            limits:
+              cpu: {{ CPU_LIMIT }}
+              memory: {{ MEMORY_LIMIT }}
+            requests:
+              cpu: {{ CPU_REQUEST }}
+              memory: {{ MEMORY_REQUEST }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  key: DATABASE_URL
+                  name: nest-queue-system-secrets
+            - name: PORT
+              valueFrom:
+                secretKeyRef:
+                  key: PORT
+                  name: nest-queue-system-secrets

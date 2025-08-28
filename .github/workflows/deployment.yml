@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 env:
+  APP_NAME: "nest-queue-system"
   IMAGE_NAME: ${{ vars.CR }}/${{ github.repository }}:${{ github.head_ref || github.ref_name }}-${{ github.sha }}
 
 jobs:
@@ -43,6 +44,65 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           file: Dockerfile
+
+  deploy_dev:
+    name: Deploy Development
+    needs: build_dev
+    runs-on: latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+    env:
+      PORT: "3000"
+      PROTOCOL: "TCP"
+      CPU_LIMIT: "500m"
+      CPU_REQUEST: "50m"
+      MEMORY_LIMIT: "512Mi"
+      MEMORY_REQUEST: "50Mi"
+      NAMESPACE: "k3-playground-dev"
+      KUBE_HOST: ${{ secrets.KUBE_HOST }}
+      KUBE_SECRET: ${{ secrets.KUBE_SECRET }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lowering image name
+        run: |
+          echo "IMAGE_NAME=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: preparing
+        run: |-
+          sed -i "s|{{ APP_NAME }}|$APP_NAME|g" ./deployment/deploy.yml
+          sed -i "s|{{ CPU_LIMIT }}|$CPU_LIMIT|g" ./deployment/deploy.yml
+          sed -i "s|{{ CPU_REQUEST }}|$CPU_REQUEST|g" ./deployment/deploy.yml
+          sed -i "s|{{ IMAGE_NAME }}|$IMAGE_NAME|g" ./deployment/deploy.yml
+          sed -i "s|{{ MEMORY_LIMIT }}|$MEMORY_LIMIT|g" ./deployment/deploy.yml
+          sed -i "s|{{ MEMORY_REQUEST }}|$MEMORY_REQUEST|g" ./deployment/deploy.yml
+          sed -i "s|{{ NAMESPACE }}|$NAMESPACE|g" ./deployment/deploy.yml
+          sed -i "s|{{ PORT }}|$PORT|g" ./deployment/deploy.yml
+          sed -i "s|{{ PROTOCOL }}|$PROTOCOL|g" ./deployment/deploy.yml
+      
+      - name: upload k8s artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d
+          path: deployment/d.yml
+
+      - name: Set Context
+        uses: azure/k8s-set-context@v4
+        with:
+          method: service-account
+          k8s-url: ${{ env.KUBE_HOST }}
+          k8s-secret: ${{ env.KUBE_SECRET }}
+
+      - name: Deploy to the Kubernetes cluster
+        uses: azure/k8s-deploy@v5
+        with:
+          namespace: ${{ env.NAMESPACE }}
+          manifests: |
+            deployment/d.yml
 
   build_failed_dev:
     name: notify build_dev failed
