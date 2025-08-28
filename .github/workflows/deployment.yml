@@ -62,8 +62,8 @@ jobs:
       MEMORY_LIMIT: "512Mi"
       MEMORY_REQUEST: "50Mi"
       NAMESPACE: "k3-playground-dev"
-      KUBE_HOST: ${{ secrets.KUBE_HOST }}
-      KUBE_SECRET: ${{ secrets.KUBE_SECRET }}
+      KUBE_HOST: ${{ secrets.SECRET_KUBE_HOST }}
+      KUBE_SECRET: ${{ secrets.SECRET_KUBE_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
