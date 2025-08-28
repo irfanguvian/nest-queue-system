@@ -87,8 +87,8 @@ jobs:
       - name: upload k8s artifact
         uses: actions/upload-artifact@v4
         with:
-          name: d
-          path: deployment/d.yml
+          name: deploy
+          path: deployment/deploy.yml
 
       - name: Set Context
         uses: azure/k8s-set-context@v4
@@ -102,7 +102,7 @@ jobs:
         with:
           namespace: ${{ env.NAMESPACE }}
           manifests: |
-            deployment/d.yml
+            deployment/deploy.yml
 
   build_failed_dev:
     name: notify build_dev failed
