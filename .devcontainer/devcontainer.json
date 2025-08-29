@@ -1,0 +1,23 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/javascript-node-postgres
+{
+	"name": "Node.js & PostgreSQL Environment",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "app",
+	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"features": {
+		"ghcr.io/devcontainers-extra/features/pnpm:2": {}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"biomejs.biome",
+				"Prisma.prisma"
+			]
+		}
+	},
+	"forwardPorts": [
+		3080
+	],
+	"postCreateCommand": "pnpm install"
+}

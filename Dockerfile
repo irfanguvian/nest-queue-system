@@ -28,8 +28,9 @@ COPY --from=build /app/dist/ ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json pnpm-lock.yaml ./
 COPY prisma ./prisma
+# COPY .env .
 
-EXPOSE 3000
+EXPOSE 3080
 
 # Run the application in production mode
 CMD ["pnpm", "start:prod"]

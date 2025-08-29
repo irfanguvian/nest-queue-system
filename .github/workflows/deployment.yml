@@ -105,9 +105,9 @@ jobs:
             deployment/deploy.yml
 
   build_failed_dev:
-    name: notify build_dev failed
-    needs: build_dev
-    if: ${{ always() && contains(join(needs.build_dev.result, ','), 'failure') }}
+    name: notify deploy_dev failed
+    needs: deploy_dev
+    if: ${{ always() && contains(join(needs.deploy_dev.result, ','), 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -119,9 +119,9 @@ jobs:
           echo "BUILD ${{ github.head_ref || github.ref_name }} GAGAL"
   
   build_success_dev:
-    name: notify build_dev success
-    needs: build_dev
-    if: ${{ always() && contains(join(needs.build_dev.result, ','), 'success') }}
+    name: notify deploy_dev success
+    needs: deploy_dev
+    if: ${{ always() && contains(join(needs.deploy_dev.result, ','), 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
