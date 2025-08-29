@@ -1,0 +1,38 @@
+name: Deploy to Server with PM2
+
+# This workflow runs on any push to the "main" branch
+on:
+  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
+
+jobs:
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to Server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # Navigate to the project directory on the server
+          cd /path/to/your/app
+
+          # Pull the latest changes from the main branch
+          git pull origin main
+
+          # Install/update dependencies using pnpm
+          # --frozen-lockfile is best practice for CI/CD to ensure consistent installs
+          pnpm install --frozen-lockfile
+
+          # Optional: Run build step if you are using TypeScript or similar
+          # pnpm run build
+
+          # Restart the application with PM2
+          # Make sure to replace 'your-app-name' with the actual name or id from `pm2 list`
+          pm2 restart 1
